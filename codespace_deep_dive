@@ -1,0 +1,157 @@
+# Technical Deep Dive: Computational Poetics using NLP
+This document provides a low-level engineering breakdown of the "How" and "Why" behind the system.
+
+---
+
+## 1. The Linguistic Core (Feature Engineering)
+
+Before any neural processing happens, the system translates raw text into a **Hybrid Feature Matrix**. This is the foundation of the model's intelligence.
+
+### A. AI-Powered Lexicon Expansion (The LLM Layer)
+To resolve the sparsity of traditional keyword matching, the system employs an **autonomous lexicon generator**:
+- **Mechanism**: A local **Qwen-2.5-0.5B** LLM is used to generate 50-word lexical fields for every target category (Gothic, War, Joy, etc.).
+- **Dynamic Growth**: Unlike static dictionaries, this allows the system to capture both classical verse (archaic pronouns) and modern interpretations (digital urbanism).
+- **Output**: Generates `lexicons.json`, which is then used by `build_features.py` to calculate real-time thematic density scores.
+
+### B. Semantic Embeddings (`sentence-transformers`)
+We use **all-MiniLM-L6-v2** to generate a 384-dimensional dense vector.
+- **Why**: Poetry relies on metaphor and latent meaning. Traditional keyword matching (TF-IDF) fails when a poem uses "crimson" instead of "red." Transformers understand that these occupy the same space in the vector manifold.
+
+### C. NLP Techniques & Implementation Mapping
+| Technique | Implementation File | Purpose |
+| :--- | :--- | :--- |
+| **Tokenization** | `build_features.py` | Regex-based boundary extraction for poetic meter. |
+| **POS Tagging** | `build_features.py` | NLTK-based syntactic distribution tracking. |
+| **TF-IDF** | `train_models.py` | Dual-level (Word/Char) frequency vectorization. |
+| **Logit Clipping** | `predict.py` | Preventing confidence collapse via `np.nan_to_num`. |
+| **Softmax Activation** | `neural_base.py` | Normalizing multi-head outputs for consensus analysis. |
+| **Neural Voting** | `predict.py` | SVM-free ensemble for numerical stability. |
+| **Soft-Voting** | `train_models.py` | Weighted probability-summing (MLP + LSTM + CNN). |
+
+### B. The 24-Dimensional Stylometric Vector
+Defined in `build_features.py`, these features capture the "structural blueprint" of the poem:
+1.  **Word Count**: Baseline volume.
+2.  **Unique Words**: Raw lexical variety.
+3.  **Type-Token Ratio (TTR)**: Vocabulary richness (Unique/Total).
+4.  **Avg Word Length**: Indicator of complexity/academic level.
+5.  **Character Count**: Total ink on the page.
+6.  **Line Count**: Structural density.
+7.  **Words Per Line**: Average rhythm/beat length.
+8.  **Structural Variance**: The normalized SD of line lengths (Coefficient of Variation).
+9.  **Punctuation Density**: Measure of "stop-and-start" pauses.
+10. **Comma Ratio**: Specific internal phrasing density.
+11. **Semicolon Ratio**: Indicator of complex logical structures.
+12. **Dash/En-Dash Ratio**: Measure of abrupt interruptions.
+13. **Avg Syllables/Word**: Rhythmic complexity.
+14. **Max Syllables**: High-complexity anchor detection.
+15. **Lexical Density**: Ratio of words > 5 chars (Strong Vocab).
+16. **Modern Score**: Density of industrial/modernist/urban lexical markers.
+17. **War Score**: Density of combat/military/field lexical markers.
+18. **Nature Score**: Density of pastoral/ecological/biological markers.
+19. **Gothic Score**: Density of necromantic/architectural markers.
+20. **Romance Score**: Density of intimate/emotional markers.
+21. **Tragedy Score**: Density of mournful/catastrophic markers.
+22. **Alliteration Density**: Consecutive consonant patterns.
+23. **Simile Density**: Count of comparison markers ("like", "as").
+24. **Metaphor Density**: Count of copula-based comparisons ("is a").
+
+---
+
+## 2. Deep Dive: Neural Head Architectures
+
+The system uses a **Polymorphic Ensemble**. Each head has a specific mathematical purpose:
+
+### Head 1: MLP (The Feature Mixer)
+- **Task**: Primarily responsible for **Genre**, **Emotion**, and **Figurative** tasks.
+- **Why**: The MLP handles the "intersection" logic. While a CNN looks for patterns and an LSTM looks for sequences, the MLP looks for **combinations**. It learns that `[High Nature Score] + [Low Avg Word Length] + [Metaphor]` is an 85% match for Pastoral Nature poetry.
+- **Structure**: `Linear(512) -> BN -> ReLU -> Dropout`. BatchNorm is critical here because it prevents the high-magnitude Stylometric features (e.g., Character Count) from drowning out the subtle TF-IDF signals.
+
+### Head 2: Bi-LSTM (The Rhythmic Auditor)
+- **Task**: Core weight-carrier for **Genre Classification**.
+- **Role**: Treat the 24-D feature vector as a sequence. By splitting the vector into 8 virtual "time-steps" (segments of 3 features), the LSTM analyzes the **rhythmic evolution** of the data. 
+- **The "Why"**: A poem is not just a collection of words; it’s a progression. The LSTM detects how complexity shifts throughout the "vectorized signature" of the text, capturing the "tempo" of the genre.
+
+### Head 3: 1D-CNN (The Form Recognizer)
+- **Task**: Deep pattern detection for **Genre** and **Quality**.
+- **Role**: Uses 256 localized kernels to slide across the feature space. 
+- **The "Why"**: CNNs are exceptional at identifying "Structural Motifs." For example, if a specific pattern of punctuation density and vowel variance appears consistently (like a fingerprint), the CNN kernels activate, identifying the "formal DNA" of the poem.
+
+---
+
+## 3. The Ensemble Strategy (Hybrid Voting)
+
+The final prediction is a **weighted soft-consensus**.
+
+### Genre Ensemble
+A pure neural collective of **MLP**, **Bi-LSTM**, and **1D-CNN**. SVM was removed to prevent numerical overflow in high-dimensional feature spaces.
+
+### Figurative Language Ensemble (The Rhetorical Analyst)
+- **Architecture**: **NeuralVoter (MLP)**.
+- **Why MLP?**: Figurative language (irony, oxymoron, personification) often relies on **co-occurrence patterns** (e.g., an animate verb near an inanimate noun). The MLP's dense layers excel at mapping these sparse TF-IDF interactions to specific rhetorical labels.
+- **Feature Focus**: Relies heavily on the **Figurative Structural Markers** (Simile/Metaphor scores) in the 24-D vector.
+
+### Emotion Detection Ensemble (The Sentimental Mapper)
+- **Architecture**: **NeuralVoter (MLP)**.
+- **Why MLP?**: Emotion is semantically dense. The MLP processes the weighted interplay between the 384-D Sentence-Transformer embeddings (latent mood) and the 24-D stylometrics (structural mood—e.g., short, aggressive lines in Anger).
+- **Consensus**: Uses soft-voting to ensure that a single "sad" word doesn't override a generally "joyful" semantic embedding.
+
+### Quality Score Ensemble (The Aesthetic Critic)
+- **Architecture**: **Hybrid Neural Regressor (Ridge + MLP)**.
+- **Ridge Regression (Linear baseline)**: Provides "grounding." It ensures the quality score doesn't wildly fluctuate based on outliers. It captures simple linear correlations (e.g., More Unique Words = Generally Higher Quality).
+- **MLP (Non-linear nuances)**: Captures the "Artistic X-Factor." It learns complex dependencies that simple linear models miss, such as the relationship between structural variance and rhythmic complexity.
+- **Final Score**: Calculated as a weighted average of the linear stability and neural depth.
+
+### Why this Multi-Headed approach is superior:
+- **Task Specialization**: While Genre needs the "Temporal awareness" of an LSTM to understand meter, Emotion only needs the "Semantic snapshot" of an MLP. By using different architectures for different tasks, we minimize compute while maximizing precision.
+- **Error Correction**: If a poem uses War words ("tomb", "dead") but has the delicate structure of a Gothic Romance, the CNN/LSTM will see the "Gothic" structure and correct the semantic bias.
+
+---
+
+## 4. Directory Architecture & Engineering Map
+
+The codebase is organized into a highly decoupled `src/` hierarchy:
+
+```text
+poetics_final/
+├── data/
+│   ├── raw/                # Original CSV/Text datasets
+│   └── processed/          # Hash-verified Feature Matrices (.npz)
+├── saved_models/           # Pickled Scikit-pipelines and PyTorch .pt weights
+├── src/
+│   ├── core/
+│   │   ├── models/         # [predict.py, train_models.py, neural_base.py]
+│   │   ├── ocr/            # [image_to_text.py] - EasyOCR + Tesseract
+│   │   └── preprocessing/  # [build_features.py, lexicon_generator.py]
+│   ├── frontend/           # [app.py] - Glassmorphism UI
+│   └── backend/            # [api.py] - High-throughput Analysis API
+└── run.py                  # Orchestration Entry point
+```
+
+---
+
+## 5. Numerical Stability & Expert Insights (Fixing NaN Logic)
+
+A critical engineering challenge was the propagation of `NaN` values in the Expert Mode graphs.
+- **Root Cause**: Certain stylometric features (like structural variance) could result in zero-division on ultra-short poems, or neural logits could saturate.
+- **Mitigation Layer**:
+    1. **Logit Clamping**: Added `np.nan_to_num` in the `BaseTorchWrapper.predict_proba` method.
+    2. **Epsilon Guards**: Implemented a `1e-6` epsilon in all density calculations in `build_features.py`.
+    3. **UI Filtering**: The `prob_bar` function in `app.py` now explicitly casts probabilities to `float` and rounds to 6 decimal places.
+    4. **SVM Retirement**: The linear SGD-based SVM heads were retired across all ensembles, as their lack of internal normalization made them vulnerable to high-sigma feature outliers in sparse TF-IDF spaces.
+
+---
+
+## 6. Vision Intelligence (The OCR Engine)
+
+The system uses a **Dual-Path Strategy** for poem extraction from images:
+1. **Primary (EasyOCR)**: A deep learning-based text detector and recognizer. It excels at complex backgrounds but requires higher RAM.
+2. **Secondary/Fallback (Tesseract)**: A legacy LSTM-based engine. It serves as a lightweight alternative when `accelerate` or GPU resources are constrained.
+3. **Logic Flow**: The `image_to_text.py` module detects available engines at runtime and gracefully fallbacks if the primary engine fails initialization.
+
+---
+
+## 7. Infrastructure Performance
+
+- **Lazy Re-Execution**: Implemented in `run_pipeline.py`. It calculates the hash of source data and scripts, only running time-intensive training if the code or data has changed.
+- **Uvicorn Concurrency**: The FastAPI backend leverages asynchronous endpoints to handle multiple analysis requests in parallel without blocking.
+- **Glassmorphism Injection**: The frontend uses a custom **CSS-in-Markdown** injection to transform standard Streamlit elements into a premium interface.

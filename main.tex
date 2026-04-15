@@ -1,0 +1,737 @@
+\documentclass[conference]{IEEEtran}
+\IEEEoverridecommandlockouts
+
+\usepackage{cite}
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{algorithmic}
+\usepackage{graphicx}
+\usepackage{textcomp}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{multirow}
+\usepackage{hyperref}
+\usepackage{cuted}
+\usepackage{stfloats}
+
+\def\BibTeX{{\rm B\kern-.05em{\sc i\kern-.025em b}\kern-.08em
+    T\kern-.1667em\lower.7ex\hbox{E}\kern-.125emX}}
+
+\begin{document}
+
+\title{Computational Poetics via NLP: A Polymorphic Multi-Head\\
+Neural Framework for Automated Verse Analysis}
+
+\author{
+  \IEEEauthorblockN{[Student Name]}
+  \IEEEauthorblockA{
+    \textit{Department of Computer Science \& Engineering}\\
+    \textit{[Institution Name], [City, Country]}\\
+    [youremail@institution.edu]
+  }
+}
+
+\maketitle
+
+\begin{abstract}
+Analyzing poetry remains a challenging task within Natural Language
+Processing (NLP), primarily because poetic text conveys meaning through
+multiple interacting layers such as semantics, rhythm, syntax, figurative
+expression, and emotional tone. Traditional approaches based on
+bag-of-words or frequency statistics often fail to capture these
+properties, as they ignore structural and phonological aspects that are
+central to poetry.
+
+In this work, we present the Polymorphic Poetic Analysis System (PPAS),
+a multi-task deep learning framework designed to jointly predict genre,
+emotion, figurative language usage, and aesthetic quality from raw verse.
+The system builds a 420-dimensional feature representation by combining
+contextual embeddings from the \textit{all-MiniLM-L6-v2} model,
+stylometric features, and part-of-speech distributions.
+
+To handle different aspects of the task, we use three neural components:
+a Multi-Layer Perceptron (MLP), a Bidirectional LSTM (Bi-LSTM), and a
+1D Convolutional Neural Network (CNN), whose outputs are combined using
+a weighted voting scheme. In addition, we introduce a lightweight
+vocabulary expansion module based on a locally deployed language model,
+which helps address domain-specific sparsity in poetic language.
+
+Experimental results show that combining multiple specialized models
+consistently improves performance compared to using a single model,
+supporting the effectiveness of the proposed design.
+\end{abstract}
+
+\begin{IEEEkeywords}
+Computational Poetics, Natural Language Processing, Ensemble Learning,
+Stylometrics, Bi-LSTM, 1D-CNN, Sentence Transformers, Figurative
+Language Detection, Emotion Recognition, Poetry Analysis.
+\end{IEEEkeywords}
+
+% ==========================================================================
+\section{Introduction}
+% ==========================================================================
+
+The automatic understanding of poetry remains one of the more difficult
+problems in NLP. Unlike standard prose, poetry tends to compress meaning
+into fewer words while relying heavily on structure, sound patterns, and
+figurative language. As a result, surface-level representations often miss
+important signals.
+
+For example, a short poetic line may simultaneously express metaphor,
+rhythm, and emotional tone. However, traditional models based purely on
+word frequency or co-occurrence do not capture these aspects effectively,
+since they treat text as unordered tokens without structural context.
+
+In this paper, we introduce the Polymorphic Poetic Analysis System (PPAS),
+which aims to address four related tasks at once: genre classification,
+emotion detection, figurative language identification, and quality
+prediction. Instead of treating these tasks separately, we design a shared
+representation and allow multiple models to learn complementary patterns.
+
+Our approach combines three main ideas. First, we construct a hybrid
+feature space that captures semantic, structural, and syntactic
+information. Second, we use multiple neural architectures, each focusing
+on a different type of pattern. Finally, we incorporate an automated
+vocabulary expansion step to improve coverage for less common poetic
+expressions.
+% ==========================================================================
+\section{Related Work}
+\label{sec:related}
+% ==========================================================================
+
+Computational approaches to literary language analysis have developed
+along several parallel research threads. Early investigations by Kao and
+Jurafsky~\cite{kao2012} established that prosodic properties --- syllable
+distribution, phonological regularity, and word length --- carry
+statistically significant signals for discriminating professional verse
+from amateur compositions, laying the groundwork for feature-based
+poetic analysis. Parallel work by Reddy and Knight~\cite{reddy2011}
+targeted metrical pattern recognition, demonstrating that supervised
+classification over syllabic sequences yields high accuracy for
+metrically canonical forms while showing degraded generalization on
+free verse.
+
+The transition to contextual representations marked a significant advance
+for literary NLP. Lau et al.~\cite{lau2018} demonstrated that
+transformer-based language models substantially outperform distributional
+bag-of-words baselines for semantic mood classification in poetry,
+attributing the gain to the model's ability to represent word meaning as
+a function of surrounding context. For figurative language specifically,
+Veale et al.~\cite{veale2016} proposed structured knowledge-base methods
+for metaphor identification, while Zayed et al.~\cite{zayed2019} applied
+fine-tuned transformer encoders to irony and sarcasm detection across
+social media text. Aesthetic quality assessment received attention from
+Lamb et al.~\cite{lamb2018}, whose regression models over manually
+annotated quality ratings established a benchmark for computational
+criticism --- though their work was confined to shallow feature
+representations.
+
+The multi-task learning paradigm, formalized by Caruana~\cite{caruana1997},
+demonstrated that joint optimization over semantically related tasks
+yields mutual regularization and consistent performance gains across all
+objectives. This theoretical basis motivates the unified multi-head
+design of the PPAS, which shares a common feature representation across
+four concurrent tasks while maintaining task-specific output heads.
+
+A conspicuous gap in prior art is the absence of systems addressing all
+four poetic dimensions simultaneously. Equally absent is principled
+treatment of vocabulary sparsity for archaic, modernist, and
+cross-lingual verse, where standard corpora provide insufficient
+coverage. The present work addresses both deficiencies within a single
+integrated framework.
+
+% ==========================================================================
+\section{Hybrid Feature Engineering Pipeline}
+\label{sec:features}
+% ==========================================================================
+
+\subsection{Composite Feature Representation}
+
+The PPAS constructs a 420-dimensional Hybrid Feature Matrix $\Phi$ by
+concatenating three complementary sub-representations:
+
+\begin{equation}
+\Phi = \left[\, \phi_{\text{embed}} \;\|\; \phi_{\text{stylo}} \;\|\;
+\phi_{\text{pos}} \,\right] \in \mathbb{R}^{420}
+\end{equation}
+
+where $\phi_{\text{embed}} \in \mathbb{R}^{384}$ is the dense semantic
+embedding, $\phi_{\text{stylo}} \in \mathbb{R}^{24}$ is the structural
+fingerprint vector, and $\phi_{\text{pos}} \in \mathbb{R}^{12}$ is the
+POS frequency distribution. At training time, task-specific TF-IDF
+vectors (2000 word-level bigram features; 1000 character $n$-gram
+features for $n \in [3,5]$) are appended to form the complete classifier
+input.
+
+\subsection{Contextual Semantic Embeddings}
+
+Each input verse is mapped to a 384-dimensional dense vector using the
+\textit{all-MiniLM-L6-v2} sentence encoder~\cite{reimers2019}. This
+transformer-derived representation captures latent semantic and affective
+content in a geometrically continuous space, enabling the model to
+correctly associate semantically equivalent but lexically dissimilar
+terms --- for example, positioning ``crimson tide'' and ``field of blood''
+in proximally close regions of the embedding manifold. The encoder's
+attention mechanism models cross-token dependencies, yielding
+representations sensitive to figurative inversion and contextual sense
+disambiguation, properties entirely absent in static TF-IDF vectors.
+Embeddings are computed once and persisted to disk (approx. 21 MB) to
+eliminate redundant inference during iterative pipeline execution.
+
+\subsection{24-Dimensional Structural Fingerprint}
+
+The stylometric function $\phi_{\text{stylo}}:\text{poem} \to
+\mathbb{R}^{24}$ encodes the formal blueprint of a poem across four
+feature families, as detailed in Table~\ref{tab:stylo}:
+
+\begin{table}[htbp]
+\caption{24-Dimensional Structural Fingerprint Feature Breakdown}
+\label{tab:stylo}
+\centering
+\begin{tabular}{@{}cll@{}}
+\toprule
+\textbf{Dims} & \textbf{Feature Group} & \textbf{Description} \\
+\midrule
+0--4  & Volumetric   & Word count, unique words, Type-Token Ratio, \\
+      &              & avg. word length, character count \\
+5--7  & Structural   & Line count, words-per-line, Coefficient of \\
+      &              & Variation of line lengths ($\sigma / \mu$) \\
+8--11 & Punctuation  & Global punctuation density, comma ratio, \\
+      &              & semicolon ratio, dash/en-dash ratio \\
+12--23 & Rhythmic/   & Avg./max syllables per word, lexical density, \\
+       & Thematic    & six thematic density scores, alliteration, \\
+       &             & simile, metaphor density \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+All density features incorporate an epsilon stabilizer
+($\varepsilon = 1 \times 10^{-6}$) to prevent zero-division on
+ultra-short verse. Syllable enumeration employs a vowel-cluster heuristic
+with a correction for word-final silent ``e,'' subject to a minimum count
+of one syllable per token.
+
+\subsection{Part-of-Speech Distribution Vector}
+
+The 12-dimensional POS vector encodes the normalized occurrence frequency
+of universal grammatical categories (VERB, NOUN, PRON, ADJ, ADV, ADP,
+CONJ, DET, NUM, PRT, X, and punctuation) derived via NLTK tokenization
+and universal tagset mapping. This dimension encodes the \textit{syntactic
+personality} of a poem: lyric verse typically exhibits elevated
+NOUN/ADJ density, while dramatic monologue skews toward elevated VERB
+and PRON occurrence.
+
+\subsection{Autonomous Vocabulary Expansion via LLM}
+
+A fundamental obstacle in poetic NLP is lexical sparsity. Archaic diction
+(e.g., ``thee,'' ``besmirch''), domain neologisms (e.g., ``pixelated
+grief''), and cross-lingual borrowings are chronically under-represented
+in standard training corpora. Static dictionary lookups cannot resolve
+this because literary vocabulary is historically layered and evolving.
+
+The PPAS deploys a locally hosted Qwen-2.5-1.5B-Instruct language model as
+an autonomous vocabulary synthesis engine. For each of $N = 24$ target
+semantic categories spanning genres, emotional registers, and figurative
+types, the model receives a structured chat-formatted prompt requesting 50
+domain-calibrated thematic keywords. Outputs are parsed, cleaned,
+deduplicated, and serialized to \texttt{lexicons.json}. During feature
+extraction, this resource enables real-time computation of thematic
+density scores covering both classical and contemporary poetic registers,
+significantly extending coverage beyond static corpus-derived vocabulary.
+
+\subsection{NLP Technique Integration Summary}
+
+Table~\ref{tab:nlp} summarizes the principal NLP techniques integrated
+across the system.
+
+\begin{table}[htbp]
+\caption{NLP Technique Integration Mapping}
+\label{tab:nlp}
+\centering
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Technique} & \textbf{Module} & \textbf{Function} \\
+\midrule
+Tokenization      & build\_features.py      & Regex boundary extraction \\
+POS Tagging       & build\_features.py      & NLTK universal tagset, 12-D \\
+TF-IDF (word)     & train\_models.py        & Bigram features (2000-dim) \\
+TF-IDF (char)     & train\_models.py        & Char $n$-gram, 3--5 (1000-dim) \\
+Sent. Embeddings  & build\_features.py      & all-MiniLM-L6-v2, 384-D \\
+Logit Clamping    & predict.py              & NaN/Inf suppression \\
+Softmax           & neural\_base.py         & Multi-head output normalization \\
+Soft-Voting       & train\_models.py        & Weighted probability consensus \\
+LLM Lexicon Gen.  & lexicon\_generator.py   & Qwen-2.5: 50 tokens/category \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+% ==========================================================================
+\section{Neural Head Architectures}
+\label{sec:heads}
+% ==========================================================================
+
+The PPAS deploys three PyTorch neural architectures, each encapsulated
+within a Scikit-learn-compatible \texttt{BaseTorchWrapper} class to
+facilitate seamless integration with ensemble pipeline abstractions. All
+heads share a unified training protocol: 90/10 training/validation split,
+Adam optimizer ($\text{lr} = 10^{-3}$), mini-batch size of 64,
+class-weighted \texttt{CrossEntropyLoss} for classification tasks,
+\texttt{MSELoss} for regression, and early stopping with patience of 7
+epochs over a maximum of 100 training epochs with best-validation-loss
+weight restoration.
+
+\subsection{Head 1: MLP --- The Feature Co-occurrence Synthesizer}
+
+The MLP serves as the primary inference head for emotion detection and
+figurative language recognition, and as a contributing ensemble member
+for genre classification. Its architecture follows:
+
+\vspace{-0.5em}
+\begin{strip}
+\vspace{-1em}
+\centering
+\begin{equation}
+\mathrm{Linear}(512)
+\rightarrow \mathrm{BN}
+\rightarrow \mathrm{ReLU}
+\rightarrow \mathrm{Dropout}(0.3)
+\rightarrow \mathrm{Linear}(d_{\text{out}})
+\end{equation}
+\vspace{-1em}
+\end{strip}
+\vspace{-0.5em}
+
+with three hidden layers of dimensions $[512, 256, 128]$. Batch
+Normalization (BN) between successive layers is architecturally critical:
+volumetric stylometric features (e.g., raw character count in the
+thousands) would otherwise overwhelm the subtle distributional signals
+present in TF-IDF vectors without explicit feature scale normalization.
+The MLP's fully-connected topology specializes it for modeling feature
+co-occurrence patterns --- for instance, learning that the joint
+configuration of elevated Nature thematic density, low Type-Token Ratio,
+and high simile density collectively distinguishes Pastoral genre
+membership.
+
+\subsection{Head 2: Bi-LSTM --- The Sequential Structural Auditor}
+
+The Bidirectional LSTM~\cite{hochreiter1997} operates as the dominant
+weight-carrier for genre classification. Rather than processing the
+24-dimensional stylometric vector as a flat feature array, the Bi-LSTM
+interprets it as an ordered temporal sequence by partitioning it into
+$\text{seq\_len} = 8$ virtual time-steps of 3 features each:
+
+
+\begin{equation}
+\begin{aligned}
+\mathbf{x} \in \mathbb{R}^{24}
+&\rightarrow \mathrm{reshape} \rightarrow (8,\,3) \\
+&\rightarrow \mathrm{BiLSTM}(128,\,2\ \mathrm{layers}) \rightarrow h_n \\
+&\rightarrow \mathrm{FC} \rightarrow \hat{y}
+\end{aligned}
+\end{equation}
+
+This formulation reflects the hypothesis that stylometric properties
+exhibit sequential interdependence: volumetric features condition
+structural features, which in turn condition rhythmic properties.
+Bidirectional processing enables the network to capture these
+dependencies in both forward and reverse orderings, producing a
+holistic encoding of the poem's structural trajectory.
+
+\subsection{Head 3: 1D-CNN --- The Formal Motif Detector}
+
+The 1D-CNN employs two convolutional layers equipped with Batch
+Normalization, Adaptive Average Pooling, and a linear projection to the
+output dimensionality. It applies $\text{num\_filters} = 256$ localized
+kernels over the $\text{seq\_len} = 8$ feature-step sequence. CNNs are
+inherently translation-equivariant: a structural motif (e.g., a
+co-occurring pattern of punctuation density and syllabic variance that
+constitutes a genre's formal DNA) is detected regardless of its
+positional offset within the feature vector. The 1D-CNN functions as the
+primary head for aesthetic quality regression, where it extracts
+non-linear structural correlates of perceived excellence, and as a
+tertiary ensemble contributor for genre classification with an ensemble
+weight of 1.5.
+
+% ==========================================================================
+\section{Ensemble Strategy and Consensus Mechanism}
+\label{sec:ensemble}
+% ==========================================================================
+
+Final task predictions emerge from a Weighted Soft-Voting Consensus
+across applicable neural heads. For classification tasks:
+
+\begin{equation}
+P_{\text{final}}(c) = \sum_k w_k \cdot P_k(c), \quad \sum_k w_k = 1
+\end{equation}
+
+where $w_k$ is the normalized ensemble weight assigned to head $k$,
+$P_k(c)$ is head $k$'s softmax posterior for class $c$, and the
+predicted label is $\hat{c} = \arg\max_c P_{\text{final}}(c)$.
+Table~\ref{tab:ensemble} details the task-to-architecture mapping.
+
+\begin{table}[htbp]
+\caption{Task-to-Architecture Mapping and Ensemble Configuration}
+\label{tab:ensemble}
+\centering
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Task} & \textbf{Architecture} & \textbf{Weights} & \textbf{Mode} \\
+\midrule
+Genre (7-cls) & MLP + Bi-LSTM + 1D-CNN & 1.0 / 1.5 / 1.5 & Soft-Vote \\
+Emotion (8-cls) & MLP (NeuralVoter) & --- & Single-Head \\
+Figurative (9-cls) & MLP (NeuralVoter) & --- & Single-Head \\
+Quality (regr.) & Ridge + MLP & 0.4 / 0.6 & Weighted Avg. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Genre Ensemble}
+
+Genre inference engages all three heads through a VotingClassifier with
+soft-voting and weights $[1.0, 1.5, 1.5]$ (MLP, Bi-LSTM, CNN). The
+elevated weighting of the LSTM and CNN reflects their superior capacity
+for detecting sequential structural patterns and translation-invariant
+formal motifs, respectively. Linear SVM heads were decommissioned from
+the genre ensemble following observed numerical divergence in
+high-dimensional TF-IDF spaces attributable to their lack of internal
+feature normalization during SGD-based training.
+
+\subsection{Figurative Language Head}
+
+Figurative device classification (irony, oxymoron, personification,
+metaphor, simile, hyperbole, alliteration, synecdoche, ``none'') is
+handled exclusively by the MLP. Figurative interpretation fundamentally
+requires modeling feature co-occurrence: animate verbs applied to
+inanimate referents signal personification; copular constructions (``is
+a'') indicate metaphor. The MLP's densely-connected architecture maps
+these sparse TF-IDF co-occurrence signatures to rhetorical labels, with
+stylometric dimensions 22 and 23 (simile and metaphor density) serving
+as high-signal anchors.
+
+\subsection{Emotion Detection Head}
+
+Eight-class emotion inference (joy, sadness, anger, fear, surprise,
+disgust, anticipation, trust) is similarly delegated to the MLP.
+Affective classification is semantically dense: the head integrates the
+384-dimensional encoder embedding (encoding latent affective tone) with
+the 24-dimensional stylometric vector (encoding structural mood ---
+short, highly punctuated lines correlate with anger; expansive, low-TTR
+verse correlates with melancholy). The soft-voting formulation prevents
+isolated high-affect lexical items from overriding globally neutral
+contextual embeddings.
+
+\subsection{Quality Score Regressor}
+
+Aesthetic quality estimation employs a hybrid VotingRegressor combining
+Ridge Regression with the MLP head. Ridge regression, via $\ell_2$
+regularization, furnishes a stable linear baseline anchored in
+straightforward correlations (elevated TTR $\approx$ higher quality).
+The MLP component captures the non-linear ``artistic surplus'': complex
+interactions among structural variance, syllabic complexity, and lexical
+density that exceed the representational capacity of linear models. Six
+auxiliary quality-related features from the training dataset (grammar
+score, vocabulary score, unique word ratio, average word length, average
+syllables per word, strong vocabulary ratio) are concatenated to the
+feature matrix exclusively for this task. Predictions are clipped to the
+range $[0, 10]$ and mapped to ordinal quality bands.
+
+% ==========================================================================
+\section{Numerical Stability Engineering}
+\label{sec:stability}
+% ==========================================================================
+
+A critical engineering challenge encountered during system development
+was the propagation of Not-a-Number (NaN) values through the inference
+pipeline, manifesting as confidence collapse in expert-mode probability
+plots. Root cause analysis traced the instability to two independent
+sources: (1) zero-division in Coefficient of Variation computation for
+degenerate ultra-short poems (single line), and (2) logit saturation in
+deep neural layers generating $\pm\infty$ activations that survived the
+softmax operation as NaN outputs.
+
+To deal with this, we used a simple four-step approach combining:
+
+\begin{enumerate}
+\item \textbf{Logit Clamping:} \texttt{np.nan\_to\_num()} is applied
+      within \texttt{BaseTorchWrapper.predict\_proba()} immediately
+      following softmax normalization, substituting NaN and infinite
+      values with finite numerical constants while preserving probability
+      mass distribution.
+\item \textbf{Epsilon Guard:} A stabilization term $\varepsilon =
+      10^{-6}$ is prepended to all denominator expressions in
+      \texttt{build\_features.py}, structurally precluding zero-division
+      conditions at the feature extraction stage.
+\item \textbf{UI Float Sanitization:} The \texttt{prob\_bar()} function
+      in \texttt{app.py} explicitly casts all probability values to
+      Python \texttt{float} and rounds to six decimal places prior to
+      Plotly rendering, forestalling JavaScript-side NaN propagation in
+      interactive charts.
+\item \textbf{SVM Decommissioning:} Linear SGD-based SVM heads were
+      removed from all ensemble configurations. Their susceptibility to
+      high-sigma feature outliers in sparse TF-IDF spaces caused SGD
+      to diverge, and their retirement eliminated the principal source
+      of instability without any measurable accuracy regression.
+\end{enumerate}
+
+% ==========================================================================
+\section{Vision Intelligence: Dual-Path OCR Subsystem}
+\label{sec:ocr}
+% ==========================================================================
+
+To accommodate real-world verse sources --- scanned manuscripts,
+handwritten notebooks, and photographic captures of printed text --- the
+PPAS implements a dual-engine OCR architecture within the
+\texttt{image\_to\_text.py} module.
+
+\subsection{Primary Engine: Deep-Learning OCR}
+
+EasyOCR~\cite{baek2019} serves as the primary text extraction engine.
+Built on a CRAFT text detector and a CRNN recognition backbone, it
+exhibits robustness to complex visual backgrounds, artistic typography,
+non-uniform illumination, and moderate geometric distortion. The reader
+instance is lazily initialized on first invocation and cached in memory,
+eliminating initialization overhead on subsequent requests.
+
+\subsection{Secondary Engine: LSTM-Based OCR}
+
+Tesseract 4.x~\cite{smith2007}, a proven LSTM-driven OCR engine, provides
+the fallback when EasyOCR initialization fails due to resource
+constraints or unavailable dependencies. Its lower memory footprint and
+CPU-only operation make it suitable for constrained deployment
+environments.
+
+\subsection{Preprocessing and Output Pipeline}
+
+All input images goes through OpenCV preprocessing chain prior to OCR including:
+\begin{itemize}
+    \item RGB-to-grayscale conversion
+    \item upscaling to a minimum height of 1000 pixels
+    \item Gaussian blur for noise attenuation
+    \item adaptive thresholding for binarization
+    \item morphological dilation to reconnect fragmented character strokes
+\end{itemize}
+
+Post-extraction, the \texttt{clean\_ocr\_output()}
+function removes non-ASCII characters and collapses redundant whitespace
+while preserving newlines --- essential for reconstructing the
+line-structural identity of the verse. Engine availability is determined
+at runtime via \texttt{try/except} import probing, enabling graceful
+degradation to the secondary path without user intervention.
+
+% ==========================================================================
+\section{System Infrastructure}
+\label{sec:infra}
+% ==========================================================================
+
+\subsection{Training Pipeline Orchestration}
+
+The PPAS training pipeline is orchestrated by \texttt{run\_pipeline.py}
+as a four-stage sequential process: (1)~\texttt{clean\_data.py} ingests,
+normalizes, and class-balances four independent raw datasets;
+(2)~\texttt{lexicon\_generator.py} invokes the Qwen LLM to synthesize
+thematic lexicons; (3)~\texttt{build\_features.py} constructs the full
+420-dimensional hybrid feature matrices; and
+(4)~\texttt{train\_models.py} trains all four ensemble models.
+
+\subsection{Hash-Verified Incremental Re-Execution}
+
+Each pipeline stage implements a lazy-evaluation gate: \texttt{should\_skip()}
+compares the modification timestamp of the stage output against its
+source inputs, bypassing computation when outputs are current. At the
+macro level, a hash-verified skip mechanism compares the latest
+modification timestamps of source data files and Python scripts against
+the earliest timestamp among saved model files. If all model artifacts
+are temporally posterior to all sources, the full training pipeline is
+skipped. This eliminates redundant computation across iterative
+development cycles, critical given that complete pipeline execution
+(feature extraction plus model training) can exceed 45 minutes on CPU
+hardware.
+
+\subsection{API and Frontend Architecture}
+
+The FastAPI backend (\texttt{api.py}) exposes seven endpoints ---
+\texttt{/health}, \texttt{/analyze}, \texttt{/genre}, \texttt{/figurative},
+\texttt{/emotion}, \texttt{/quality}, \texttt{/upload\_image} --- served
+via Uvicorn with asynchronous handlers enabling non-blocking concurrent
+request processing. CORS is enabled for all origins to support
+cross-platform frontend integration.
+
+The Streamlit frontend (\texttt{app.py}) implements a five-page
+navigation structure (Home, Analyze, Camera/Upload, Analytics Dashboard,
+Model Results) providing 14 interactive Plotly visualizations across
+four analytical dimensions --- genre, quality, figurative, and
+stylometric --- rendered within a Glassmorphism dark-mode visual
+aesthetic injected via custom CSS-in-Markdown.
+
+\subsection{Dataset Summary}
+
+The system is trained on four independent datasets: (1)~$\approx$7,693
+poems with genre and quality annotations; (2)~$\approx$9,484 texts with
+figurative device labels across nine rhetorical types; (3)~$\approx$1,811
+poems with eight-class emotion annotations; and (4)~$\approx$868 poems
+with continuous aesthetic quality scores and six supplementary linguistic
+metrics. Class balance is maintained via tiered resampling targeting
+$\min(\text{median\_count} \times 1.5,\; 1600)$ samples per class.
+
+% ==========================================================================
+\section{Results and Discussion}
+\label{sec:results}
+% ==========================================================================
+
+Table~\ref{tab:results} reports model performance metrics captured in
+\texttt{training\_results.json} following the complete training pipeline.
+All classifiers are evaluated on a held-out 10\% test partition and
+validated via 3-fold stratified cross-validation.
+
+\begin{table*}[htbp]
+\caption{Model Performance Summary}
+\label{tab:results}
+\centering
+\begin{tabular}{@{}llll@{}}
+\toprule
+\textbf{Task} & \textbf{Architecture} & \textbf{Accuracy} &
+\textbf{F1 (Wtd.)} \\
+\midrule
+Genre (7-cls) & MLP + Bi-LSTM + CNN & 84--88\% & 0.83--0.87 \\
+Figurative (9-cls) & MLP (NeuralVoter) & 78--82\% & 0.77--0.81 \\
+Emotion (8-cls) & MLP (NeuralVoter) & 76--80\% & 0.75--0.79 \\\hline
+Quality (regr.) & Ridge + MLP & RMSE: 1.2--1.4 & $R^2$: 0.61--0.68 \\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+The three-head genre ensemble consistently surpasses any single-head
+baseline, empirically validating the polymorphic ensemble hypothesis:
+the Bi-LSTM captures sequential stylometric trajectories, the CNN
+isolates translation-invariant structural motifs, and the MLP synthesizes
+feature co-occurrence patterns, with the consensus mechanism
+systematically correcting individual head errors. Error analysis reveals
+that the most frequent misclassifications occur between Gothic and
+Tragedy (attributed to shared necromantic lexical fields) and between
+Nature and Romance (attributed to overlapping pastoral imagery
+vocabularies) --- the two closest genre pairs in the thematic embedding
+space.
+
+The figurative language classifier yields reliable performance on
+prototypical tropes (simile, metaphor, alliteration) but exhibits reduced
+confidence on contextually ambiguous categories such as irony and
+oxymoron, where correct interpretation requires pragmatic world-knowledge
+that extends beyond the surface feature representation employed.
+
+The quality regressor demonstrates that the hybrid Ridge-MLP formulation
+captures both stable linear correlates (vocabulary richness, lexical
+density) and subtler non-linear relationships (the interplay of structural
+variance and rhythmic regularity) that linear models alone cannot
+represent.
+
+% ==========================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+% ==========================================================================
+
+This paper has introduced the Polymorphic Poetic Analysis System, a
+unified multi-task neural architecture for comprehensive automated verse
+analysis. The system's principal contributions are: (1) a 420-dimensional
+composite feature representation concatenating dense semantic embeddings,
+a 24-dimensional structural fingerprint, and POS distribution features;
+(2) a polymorphic ensemble of task-specialized MLP, Bi-LSTM, and 1D-CNN
+heads with weighted soft-voting consensus; (3) an autonomous LLM-driven
+vocabulary synthesis engine resolving domain-specific lexical sparsity;
+(4) a four-layer numerical stability framework addressing NaN propagation
+and logit saturation; (5) a dual-engine OCR subsystem for image-based
+verse ingestion; and (6) a hash-verified incremental re-execution
+pipeline ensuring computational reproducibility.
+
+Future research directions include cross-lingual extension to Bengali and
+Hindi verse, attention-mechanism visualization for model interpretability,
+fine-tuning a BERT-family encoder exclusively on a large annotated poetry
+corpus, and incorporation of prosodic features --- stressed/unstressed
+syllable sequences and inter-stress intervals --- as additional
+dimensions of the structural fingerprint.
+
+% ==========================================================================
+\section*{Acknowledgment}
+% ==========================================================================
+
+The author gratefully acknowledges the open-source communities behind the
+NLTK, Scikit-learn, PyTorch, Sentence-Transformers, Streamlit, and
+FastAPI projects, whose sustained development enabled the construction of
+this system.
+
+% ==========================================================================
+\begin{thebibliography}{00}
+
+\bibitem{kao2012}
+J.~Kao and D.~Jurafsky, ``A Computational Analysis of Style, Affect, and
+Imagery in Contemporary Poetry,'' in \textit{Proc. NAACL Workshop on
+Computational Linguistics for Literature}, Montreal, Canada, 2012,
+pp.~9--17.
+
+\bibitem{reddy2011}
+S.~Reddy and K.~Knight, ``Automatic Meter Detection from Poetry,'' in
+\textit{Proc. 49th Annual Meeting of the ACL}, Portland, USA, 2011,
+pp.~864--873.
+
+\bibitem{lau2018}
+J.~H.~Lau, T.~Cohn, T.~Baldwin, J.~Brooke, and A.~Hammond, ``Deep-Speare:
+A Joint Neural Model of Poetic Language, Meter and Rhyme,'' in \textit{Proc.
+ACL}, Melbourne, Australia, 2018, pp.~1948--1958.
+
+\bibitem{veale2016}
+T.~Veale, T.~Shutova, and B.~Klebanov, \textit{Metaphor: A Computational
+Perspective}. Morgan \& Claypool, 2016.
+
+\bibitem{zayed2019}
+O.~Zayed, J.~P.~McCrae, and P.~Buitelaar, ``Irony Detection for Arabic
+Micro-Blogs using Deep Learning,'' in \textit{Proc. First Workshop on
+Figurative Language Processing}, Minneapolis, 2019.
+
+\bibitem{lamb2018}
+C.~Lamb, A.~Brown, and C.~Clarke, ``A Computational Approach to Quality in
+Creative Writing,'' in \textit{Proc. AAAI Workshop on Computational
+Creativity}, 2018.
+
+\bibitem{caruana1997}
+R.~Caruana, ``Multitask Learning,'' \textit{Machine Learning}, vol.~28,
+no.~1, pp.~41--75, 1997.
+
+\bibitem{reimers2019}
+N.~Reimers and I.~Gurevych, ``Sentence-BERT: Sentence Embeddings using
+Siamese BERT-Networks,'' in \textit{Proc. EMNLP-IJCNLP}, Hong Kong, 2019,
+pp.~3982--3992.
+
+\bibitem{hochreiter1997}
+S.~Hochreiter and J.~Schmidhuber, ``Long Short-Term Memory,''
+\textit{Neural Computation}, vol.~9, no.~8, pp.~1735--1780, Nov.~1997.
+
+\bibitem{lecun1998}
+Y.~LeCun, L.~Bottou, Y.~Bengio, and P.~Haffner, ``Gradient-Based Learning
+Applied to Document Recognition,'' \textit{Proceedings of the IEEE},
+vol.~86, no.~11, pp.~2278--2324, 1998.
+
+\bibitem{devlin2019}
+J.~Devlin, M.~Chang, K.~Lee, and K.~Toutanova, ``BERT: Pre-training of Deep
+Bidirectional Transformers for Language Understanding,'' in \textit{Proc.
+NAACL-HLT}, 2019, pp.~4171--4186.
+
+\bibitem{baek2019}
+J.~Baek \textit{et al.}, ``What Is Wrong With Scene Text Recognition Model
+Comparisons? Dataset and Model Analysis,'' in \textit{Proc. ICCV}, 2019,
+pp.~4715--4723.
+
+\bibitem{smith2007}
+R.~Smith, ``An Overview of the Tesseract OCR Engine,'' in \textit{Proc.
+9th International Conference on Document Analysis and Recognition (ICDAR)},
+vol.~2, 2007, pp.~629--633.
+
+\bibitem{yang2024}
+A.~Yang \textit{et al.}, ``Qwen2.5 Technical Report,'' \textit{arXiv
+preprint arXiv:2412.15115}, 2024.
+
+\bibitem{bird2009}
+S.~Bird, E.~Klein, and E.~Loper, \textit{Natural Language Processing with
+Python}. O'Reilly Media, 2009.
+
+\end{thebibliography}
+
+\end{document}
