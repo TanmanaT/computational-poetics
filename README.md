@@ -15,7 +15,7 @@
 - **Premium UI**: High-end glassmorphism design system with dynamic gradients and custom typography (`Outfit` & `Playfair Display`).
 - **Neural Ensemble Inference**: Simultaneous analysis of **Genre**, **Figurative Language**, **Emotion**, and **Quality** using a stabilized ensemble of MLP, Bi-LSTM, and CNN heads (SVM-free).
 - **Vision Engine**: Robust OCR extraction via **EasyOCR** and **Tesseract** fallback for handwritten or printed poems.
-- **Linguistic Fingerprinting**: Extraction of 20 core stylometric features including alliteration, simile, and metaphor density.
+- **Stylometric Analysis**: Identifies 20 distinct linguistic markers, specifically measuring the frequency of literary devices like metaphors, similes, and alliterative patterns.
 
 ---
 
